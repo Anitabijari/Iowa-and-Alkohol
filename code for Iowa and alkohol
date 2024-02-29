@@ -3,7 +3,7 @@
 #alcohol consumption and average level of education?
 #alcohol consumption and income level.
 #alcohol consumption and unemployment rate.
-# First I start to ask question from database as much as I can to get to these question .
+# First I start to ask question from database as much as I can to get to these question i pycharm and jupyter notebook.
 
 from pyspark.sql import SparkSession
 spark = SparkSession.builder.appName("Name-our-app").config("spark.memory.offHeap.enabled", "true").config(
