@@ -1,0 +1,604 @@
+#alcohol consumption and the frequency of alcohol-related accidents in traffic?
+#alcohol consumption and the amount of child abuse?
+#alcohol consumption and average level of education?
+#alcohol consumption and income level.
+#alcohol consumption and unemployment rate.
+# First I start to ask question from database as much as I can to get to these question .
+
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.appName("Name-our-app").config("spark.memory.offHeap.enabled", "true").config(
+    "spark.memory.offHeap.size", "10g").getOrCreate()
+#%%
+County_Population_By_Year_20240215 = spark.read.json("spark-warehouse/County_Population_By_Year_20240215.json", multiLine=True)
+County_Population_By_Year_20240215.createOrReplaceTempView("County_Population_By_Year_20240215")
+
+Income_By_County_20240215 = spark.read.json("spark-warehouse/Income_By_County_20240215.json", multiLine=True)
+Income_By_County_20240215 .createOrReplaceTempView("Income_By_County_20240215 ")
+
+Iowa_Child_Abuse_20240215 = spark.read.json("spark-warehouse/Iowa_Child_Abuse_20240215.json", multiLine=True)
+Iowa_Child_Abuse_20240215.createOrReplaceTempView("Iowa_Child_Abuse_20240215")
+
+Iowa_Educational_Attainment_sample = spark.read.json("spark-warehouse/Iowa_Educational_Attainment_sample.json", multiLine=True)
+Iowa_Educational_Attainment_sample.createOrReplaceTempView("Iowa_Educational_Attainment_sample")
+
+Iowa_Liquor_Sales_sample = spark.read.json("spark-warehouse/Iowa_Liquor_Sales_sample.json", multiLine=True)
+Iowa_Liquor_Sales_sample.createOrReplaceTempView("Iowa_Liquor_Sales_sample")
+
+Iowa_Unemployment_20240215 = spark.read.json("spark-warehouse/Iowa_Unemployment_20240215.json", multiLine=True)
+Iowa_Unemployment_20240215.createOrReplaceTempView("Iowa_Unemployment_20240215")
+
+Iowa_Vehicle_Crashes_sample = spark.read.json("spark-warehouse/Iowa_Vehicle_Crashes_sample.json", multiLine=True)
+Iowa_Vehicle_Crashes_sample .createOrReplaceTempView("Iowa_Vehicle_Crashes_sample ")
+
+#%% md
+
+#%%
+County_Population_By_Year_20240215.printSchema()
+ 
+#%%
+Income_By_County_20240215.printSchema()
+#%%
+Iowa_Child_Abuse_20240215.printSchema()
+
+Iowa_Educational_Attainment_sample.printSchema()
+#%%
+Iowa_Liquor_Sales_sample.printSchema()
+#%%
+Iowa_Unemployment_20240215.printSchema()
+#%%
+Iowa_Vehicle_Crashes_sample.printSchema()
+#%% md
+1: Alcohol Consumption Trends
+#%%
+alcohol_trends_df = spark.sql("SELECT * FROM Iowa_Liquor_Sales_sample")
+alcohol_trends_df.show()
+#%% md
+
+#%% md
+
+#%% md
+which county uses more alcohol
+#%%
+liquor_sales_df = spark.read.json("spark-warehouse/Iowa_Liquor_Sales_sample.json", multiLine=True)
+liquor_sales_df.createOrReplaceTempView("Iowa_Liquor_Sales_sample")
+
+total_alcohol_sales_by_county = spark.sql("""
+    SELECT county, SUM(saleDollars) AS totalAlcoholSales
+    FROM Iowa_Liquor_Sales_sample
+    GROUP BY county
+    ORDER BY totalAlcoholSales DESC
+""")
+
+total_alcohol_sales_by_county.show()
+
+
+#%% md
+
+#%%
+result = spark.sql("SELECT * FROM County_Population_By_Year_20240215")
+result.show()
+#%%
+result = spark.sql("SELECT * FROM Iowa_Vehicle_Crashes_sample")
+result.show()
+#%%
+result = spark.sql("SELECT * FROM Iowa_Child_Abuse_20240215")
+result.show()
+#%%
+result = spark.sql("SELECT * FROM Iowa_Educational_Attainment_sample")
+result.show()
+#%%
+result = spark.sql("SELECT * FROM Income_By_County_20240215")
+result.show()
+#%%
+result = spark.sql("SELECT * FROM Iowa_Liquor_Sales_sample")
+result.show()
+
+#%%
+result = spark.sql("SELECT * FROM Iowa_Unemployment_20240215")
+result.show()
+#%%
+result = spark.sql("SELECT * FROM Iowa_Vehicle_Crashes_sample")
+result.show(
+#%% md
+
+#%% md
+
+#%% md
+
+
+#%%
+# Calculate total alcohol volume sold per county and year
+alcohol_consumption = spark.sql("""
+    SELECT
+        county,
+        date_format(date, 'yyyy') AS year,
+        SUM(volumeSoldLiters) AS totalAlcoholConsumption
+    FROM Iowa_Liquor_Sales_sample
+    GROUP BY county, year
+""")
+
+# Calculate total alcohol-related accidents per county and year
+alcohol_related_accidents = spark.sql("""
+    SELECT
+        countyName as county,
+        date_format(dateofCrash, 'yyyy') AS year,
+        COUNT(*) AS totalAccidentsbydrugorAlcohol
+    FROM Iowa_Vehicle_Crashes_sample
+    WHERE drugorAlcohol != 'None Indicated'
+    GROUP BY county, year
+""")
+
+# Join the two datasets on county and year
+result = alcohol_consumption.join(alcohol_related_accidents, ['county', 'year'], 'left_outer')
+result.show(1000)
+
+
+#%%
+# Calculate total alcohol volume sold per county and year
+alcohol_consumption = spark.sql("""
+    SELECT
+        county,
+        date_format(date, 'yyyy') AS year,
+        SUM(volumeSoldLiters) AS totalAlcoholConsumption
+    FROM Iowa_Liquor_Sales_sample
+    GROUP BY county, year
+""")
+
+# Calculate total alcohol-related accidents per county and year
+alcohol_related_accidents = spark.sql("""
+    SELECT
+        countyName as county,
+        date_format(dateofCrash, 'yyyy') AS year,
+        COUNT(*) AS totalAccidentsbydrugorAlcohol
+    FROM Iowa_Vehicle_Crashes_sample
+    WHERE drugorAlcohol != 'None Indicated'
+    GROUP BY county, year
+""")
+
+# Define an initial DataFrame to join the subsequent results
+result = alcohol_consumption
+
+# Calculate average level of education per county
+education_data = spark.sql("""
+    SELECT
+        SUBSTRING_INDEX(name, ',', 1) as county,
+        AVG(CAST(SUBSTRING(variable, 10, LENGTH(variable)) AS INT)) AS avg_education
+    FROM Iowa_Educational_Attainment_sample
+    where educationalAttainment='Any' or educationalAttainment= 'Less than 9th Grade'
+    GROUP BY county
+""")
+
+# Join the alcohol consumption, accidents, and education datasets on county and year
+result_with_education = (result
+                        .join(alcohol_related_accidents, ['county', 'year'], 'left_outer')
+                        .join(education_data, ['county'], 'left_outer'))
+
+# Show the joined results
+result_with_education.show(1000)
+
+
+#%%
+
+# Calculate total alcohol volume sold per county and year
+alcohol_consumption = spark.sql("""
+    SELECT
+        county,
+        date_format(date, 'yyyy') AS year,
+        SUM(volumeSoldLiters) AS totalAlcoholConsumption
+    FROM Iowa_Liquor_Sales_sample
+    GROUP BY county, year
+""")
+
+# Calculate total alcohol-related accidents per county and year
+alcohol_related_accidents = spark.sql("""
+    SELECT
+        countyName as county,
+        date_format(dateofCrash, 'yyyy') AS year,
+        COUNT(*) AS totalAccidentsbydrugorAlcohol
+    FROM Iowa_Vehicle_Crashes_sample
+    WHERE drugorAlcohol != 'None Indicated'
+    GROUP BY county, year
+""")
+
+# Define an initial DataFrame to join the subsequent results
+result = alcohol_consumption
+from pyspark.sql.functions import when
+
+# Calculate education data based on conditions
+education_data = (spark.table("Iowa_Educational_Attainment_sample")
+    .select(
+        (F.substring_index("name", ',', 1)).alias("county"),
+        F.when(F.col("educationalAttainment").isin('Any', 'Less than 9th Grade'), None)
+         .otherwise(F.col("educationalAttainment")).alias("EducationLevel")
+    )
+)
+# Join the alcohol consumption, accidents, and education datasets on county
+result_with_education = (result
+                        .join(alcohol_related_accidents, ['county', 'year'], 'left_outer')
+                        .join(education_data, ['county'], 'left_outer'))
+
+# Show the joined results
+result_with_education.show(1000)
+
+
+#%%
+# Show the  types of abuse for every year and each county
+result = spark.sql("""
+    SELECT
+        countyName as abuse_county,
+        year as abuse_year,
+        abuseType
+    FROM Iowa_Child_Abuse_20240215
+    GROUP BY abuse_county, abuse_year, abuseType
+""")
+result.show()
+
+#%%
+# Calculate level of education per county
+result = spark.sql("""
+    SELECT
+        SUBSTRING_INDEX(name, ',', 1) as county,
+        date_format(dataCollectionEndDate, 'yyyy') AS year,
+        educationalAttainment AS EducationLevel
+    FROM Iowa_Educational_Attainment_sample
+    WHERE educationalAttainment NOT IN ('Any', 'Less than 9th Grade')
+""")
+
+# Show the results
+result.show()
+
+
+#%%
+# Calculate total alcohol volume sold per county and year
+alcohol_consumption = spark.sql("""
+    SELECT
+        county,
+        date_format(date, 'yyyy') AS year,
+        SUM(volumeSoldLiters) AS totalAlcoholConsumption
+    FROM Iowa_Liquor_Sales_sample
+    GROUP BY county, year
+""")
+
+# Calculate level of education per county
+education = spark.sql("""
+    SELECT
+        SUBSTRING_INDEX(name, ',', 1) as county,
+        date_format(dataCollectionEndDate, 'yyyy') AS year,
+        educationalAttainment AS EducationLevel
+    FROM Iowa_Educational_Attainment_sample
+    WHERE educationalAttainment NOT IN ('Any', 'Less than 9th Grade')
+""")
+
+
+# Join the two datasets on county and year
+result = alcohol_consumption.join(education, ['county', 'year'], 'inner')
+result.show(1000)
+#%%
+from pyspark.sql.functions import avg, when
+
+# Calculate average education level per county and year
+education_avg = spark.sql("""
+    SELECT
+        SUBSTRING_INDEX(name, ',', 1) as county,
+        date_format(dataCollectionEndDate, 'yyyy') AS year,
+        AVG(
+            CASE
+                WHEN educationalAttainment = 'Bachelors Degree' THEN 3
+                WHEN educationalAttainment = 'Associates Degree' THEN 2
+                WHEN educationalAttainment = 'High School Diploma' THEN 1
+                WHEN educationalAttainment = 'Graduate or Professional Degree' THEN 4
+                WHEN educationalAttainment = '9th to 12th Grade' THEN 1
+                WHEN educationalAttainment = 'Some College - No Degree' THEN 2
+                ELSE 0
+            END
+        ) AS avgEducationLevel
+    FROM Iowa_Educational_Attainment_sample
+    GROUP BY county, year
+""")
+
+# Calculate total alcohol volume sold per county and year
+alcohol_consumption = spark.sql("""
+    SELECT
+        county,
+        date_format(date, 'yyyy') AS year,
+        SUM(volumeSoldLiters) AS totalAlcoholConsumption
+    FROM Iowa_Liquor_Sales_sample
+    GROUP BY county, year
+""")
+
+# Join the two datasets on county and year
+result = alcohol_consumption.join(education_avg, ['county', 'year'], 'left_outer')
+
+# Show the results
+result.show(1000)
+
+
+
+
+
+#%%
+from pyspark.sql.functions import avg, when, col
+
+# Calculate total alcohol volume sold per county and year
+alcohol_consumption = spark.sql("""
+    SELECT
+        date_format(date, 'yyyy') AS year,
+        SUM(volumeSoldLiters) AS totalAlcoholConsumption
+    FROM Iowa_Liquor_Sales_sample
+    GROUP BY year
+""")
+
+# Filter out unwanted educational levels
+filtered_education = spark.sql("""
+    SELECT
+        date_format(dataCollectionEndDate, 'yyyy') AS year,
+        educationalAttainment
+    FROM Iowa_Educational_Attainment_sample
+    WHERE educationalAttainment IN (
+        'Bachelors Degree',
+        'Associates Degree',
+        'High School Diploma',
+        'Graduate or Professional Degree',
+        '9th to 12th Grade',
+        'Some College - No Degree',
+        'Any'
+    )
+""")
+
+# Calculate average education level separately for each level
+education_avg = filtered_education.groupBy('year', 'educationalAttainment').agg(
+    avg(
+        when(col('educationalAttainment') == 'Bachelors Degree', 3)
+        .when(col('educationalAttainment') == 'Associates Degree', 2)
+        .when(col('educationalAttainment') == 'High School Diploma', 1)
+        .when(col('educationalAttainment') == 'Graduate or Professional Degree', 4)
+        .when(col('educationalAttainment') == '9th to 12th Grade', 1)
+        .when(col('educationalAttainment') == 'Some College - No Degree', 2)
+        .otherwise(0)
+    ).alias('avgEducationLevel')
+)
+
+
+# Join the results with alcohol consumption data
+result = alcohol_consumption.join(education_avg, ['year'], 'left_outer')
+
+# Show the joined results
+result.show(1000)
+
+
+#%%
+#alcohol consumption and child abuse
+result = spark.sql("""
+SELECT 
+    CA.countyName,
+    CA.time, 
+    sum(CA.antal_forekomster),
+    format_number(sum(SP.AlcoholVolumeL), 7) AS totalAlcoholVolume
+FROM (
+    SELECT 
+        LOWER(countyName) AS countyName, 
+        year as time, 
+        sum(occurences) AS antal_forekomster
+    FROM Iowa_Child_Abuse_20240215 IC 
+    GROUP BY countyName, year
+    ORDER BY countyName, year
+) AS CA
+JOIN (
+    SELECT 
+        LOWER(lS.county) AS countyName,
+        YEAR(Date) AS time,
+        ROUND(FLOOR(SUM(volumeSoldGallons)) / SUM(Population), 7) AS AlcoholVolumeL
+    FROM Iowa_Liquor_Sales_sample lS, County_Population_By_Year_20240215 pc
+    WHERE LOWER(pc.county) = LOWER(Concat(lS.county, " county"))
+    GROUP BY lS.county, time
+    ORDER BY lS.county, time
+) AS SP
+ON CA.countyName = SP.countyName AND CA.time = SP.time
+GROUP BY CA.countyName, CA.time
+ORDER BY CA.countyName, CA.time
+""")
+result.show(n=2000)
+
+#%%
+# alcohol consumption and the frequency of alcohol-related traffic accidents
+result_crashes = spark.sql("""
+SELECT 
+    CA.countyName,
+    CA.time, 
+    sum(CA.totalOccupants) AS totalAccidents,
+     format_number(sum(SP.AlcoholVolumeL), 7) AS totalAlcoholVolume
+FROM 
+    (
+        SELECT 
+            LOWER(countyName) AS countyName, 
+            year(cast(dateofCrash as date)) AS time, 
+            sum(totalNumberofOccupants) AS totalOccupants
+        FROM Iowa_Vehicle_Crashes_sample
+        GROUP BY countyName, time
+        ORDER BY countyName, time
+    ) AS CA
+JOIN 
+    (
+        SELECT 
+            LOWER(l.county) AS countyName,
+            year(cast(Date as date)) AS time,
+            ROUND(FLOOR(SUM(volumeSoldGallons)) / SUM(Population),7) AS AlcoholVolumeL
+        FROM Iowa_Liquor_Sales_sample l
+        JOIN County_Population_By_Year_20240215 p 
+        ON LOWER(p.county) = LOWER(CONCAT(l.county, " county"))
+        GROUP BY l.county, time
+        ORDER BY l.county, time
+    ) AS SP
+ON 
+    CA.countyName = SP.countyName 
+    AND CA.time = SP.time
+GROUP BY CA.countyName, CA.time
+ORDER BY CA.countyName, CA.time
+""")
+result_crashes.show(n=2000)
+
+#%%
+#alcohol consumption and unemployment level
+result_unemployment = spark.sql("""
+SELECT 
+    UE.countyName,
+    UE.time, 
+     format_number(sum(SP.AlcoholVolumeL), 7) AS totalAlcoholVolume,
+    sum(UE.weeksCompensated) AS totalWeeksCompensated,
+    sum(UE.recipients) AS totalRecipients
+FROM 
+    (
+        SELECT 
+            LOWER(l.county) AS countyName,
+            year(cast(Date as date)) AS time,
+            ROUND(FLOOR(SUM(volumeSoldGallons)) / SUM(Population),7) AS AlcoholVolumeL
+        FROM Iowa_Liquor_Sales_sample l
+        JOIN County_Population_By_Year_20240215 p 
+        ON LOWER(p.county) = LOWER(CONCAT(l.county, " county"))
+        GROUP BY l.county, time
+        ORDER BY l.county, time
+    ) AS SP
+JOIN 
+    (
+        SELECT 
+            LOWER(countyName) AS countyName, 
+            year AS time, 
+            sum(weeksCompensated) AS weeksCompensated,
+            sum(recipients) AS recipients
+        FROM Iowa_Unemployment_20240215 UE
+        GROUP BY countyName, time
+        ORDER BY countyName, time
+    ) AS UE
+ON 
+    SP.countyName = UE.countyName 
+    AND SP.time = UE.time
+GROUP BY UE.countyName, UE.time
+ORDER BY UE.countyName, UE.time
+""")
+result_unemployment.show(n=2000)
+
+#%%
+# alcohol consumption and income level.
+result_crashes = spark.sql("""
+SELECT 
+    CA.countyName,
+    CA.time, 
+    sum(CA.totalIncome) AS totalIncome,
+     format_number(sum(SP.AlcoholVolumeL), 7) AS totalAlcoholVolume
+FROM 
+    (
+        SELECT 
+            LOWER(name) AS countyName, 
+            year(cast(date as date)) AS time, 
+            sum(value) AS totalIncome
+        FROM Income_By_County_20240215
+        GROUP BY countyName, time
+        ORDER BY countyName, time
+    ) AS CA
+    
+JOIN 
+    (
+        SELECT 
+            LOWER(l.county) AS countyName,
+            year(cast(Date as date)) AS time,
+            ROUND(FLOOR(SUM(volumeSoldGallons)) / SUM(Population),7) AS AlcoholAvgGallons
+        FROM Iowa_Liquor_Sales_sample l
+        JOIN County_Population_By_Year_20240215 p 
+        ON LOWER(p.county) = LOWER(CONCAT(l.county, " county"))
+        GROUP BY countyName, time
+        ORDER BY countyName, time
+    ) AS SP
+ON 
+    CA.countyName = SP.countyName 
+    AND CA.time = SP.time
+GROUP BY CA.countyName, CA.time
+ORDER BY CA.countyName, CA.time
+""")
+result_crashes.show(n=2500)
+
+#%%
+#alcohol consumption and average education level
+result = spark.sql("""
+SELECT 
+    ED.countyName,
+    ED.time,
+    SUM(ED.Calculating) AS TotalEducation,
+    format_number(sum(SP.AlcoholAvgLiters), 7) AS totalAlcoholVolume
+FROM (
+    SELECT 
+        LOWER(REPLACE(REPLACE(name, " County, Iowa", ""), " city, Iowa", "")) AS countyName, 
+        COUNT(
+            CASE 
+                WHEN educationalAttainment = 'Bachelors Degree' THEN 4
+                WHEN educationalAttainment = 'Associates Degree' THEN 3
+                WHEN educationalAttainment = 'High School Diploma' THEN 1
+                WHEN educationalAttainment = 'Graduate or Professional Degree' THEN 5
+                WHEN educationalAttainment = '9th to 12th Grade' THEN 1
+                WHEN educationalAttainment = 'Some College - No Degree' THEN 2
+                ELSE 0
+            END
+        ) AS Calculating,
+        YEAR(dataCollectionEndDate) AS time
+    FROM Iowa_Educational_Attainment_sample
+    WHERE educationalAttainment IN (
+        'Bachelors Degree',
+        'Associates Degree',
+        'High School Diploma',
+        'Graduate or Professional Degree',
+        '9th to 12th Grade',
+        'Some College - No Degree',
+        'Any'
+    )
+    GROUP BY countyName, time
+    ORDER BY countyName, time
+) AS ED,
+ (
+    SELECT 
+        LOWER(lS.county) AS countyName,
+        YEAR(Date) AS time,
+        FLOOR(SUM(volumeSoldGallons)) / SUM(Population) AS AlcoholAvgLiters
+    FROM Iowa_Liquor_Sales_sample  lS
+    JOIN County_Population_By_Year_20240215 pc ON LOWER(pc.county) = LOWER(CONCAT(lS.county, " county"))
+    GROUP BY lS.county, time
+) AS SP
+WHERE ED.countyName = SP.countyName AND ED.time = SP.time
+GROUP BY ED.countyName, ED.time
+ORDER BY ED.countyName, ED.time
+""")
+
+result.show(n=2000)
+
+#%%
+from pyspark.sql import SparkSession
+
+# Create a Spark session
+spark = SparkSession.builder.appName("VehicleCrashesAnalysis").getOrCreate()
+
+# Load the JSON file into a DataFrame
+df_vehicle_crashes = spark.read.json("Iowa_Vehicle_Crashes_sample.json")
+
+# Register the DataFrame as a temporary SQL table
+df_vehicle_crashes.createOrReplaceTempView("Iowa_Vehicle_Crashes_sample")
+
+# Perform your Spark SQL query
+result_vehicle_crashes = spark.sql("""
+    -- Your SQL query here
+""")
+
+# Convert the result to a Pandas DataFrame
+pandas_result_vehicle_crashes = result_Iowa_Vehicle_Crashes_sample.toPandas()
+
+# Plot the data using matplotlib or other visualization libraries
+# Example:
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(12, 6))
+plt.plot(pandas_result_vehicle_crashes['time'], pandas_result_vehicle_crashes['TotalEducation'], marker='o', linestyle='-', color='b', label='Total Education')
+plt.plot(pandas_result_vehicle_crashes['time'], pandas_result_vehicle_crashes['totalAlcoholVolume'], marker='o', linestyle='-', color='r', label='Total Alcohol Volume')
+plt.title('Total Education vs. Total Alcohol Volume per County and Time')
+plt.xlabel('Time')
+plt.ylabel('Count or Volume')
+plt.xticks(rotation=45)
+plt.legend()
+plt.grid(True)
+plt.show()
